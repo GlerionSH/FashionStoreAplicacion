@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../features/auth/presentation/providers/auth_session_providers.dart';
 import '../../features/auth/presentation/screens/account_screen.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
+import '../../features/auth/presentation/screens/register_screen.dart';
 import '../../features/cart/presentation/screens/cart_screen.dart';
 import '../../features/checkout/presentation/screens/checkout_success_screen.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
@@ -30,6 +31,7 @@ import '../../features/admin/presentation/screens/admin_shipments_screen.dart';
 import '../../features/admin/presentation/screens/admin_cancellations_screen.dart';
 import '../../features/admin/presentation/screens/admin_users_screen.dart';
 import '../../features/admin/presentation/screens/admin_return_detail_screen.dart';
+import '../../features/admin/presentation/screens/admin_support_screen.dart';
 import '../../features/diagnostics/presentation/screens/connectivity_diagnostics_screen.dart';
 import '../../shared/widgets/app_scaffold.dart';
 
@@ -107,6 +109,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           loc == '/admin-panel' || loc.startsWith('/admin-panel/');
       final isAdminLogin = loc == '/admin/login';
       final isLogin = loc == '/login';
+      final isRegister = loc == '/register';
 
       // Admin panel routes require login + admin role
       if (isAdminPanel && !loggedIn) {
@@ -125,6 +128,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
       // Regular login redirect
       if (isLogin && loggedIn) {
+        return '/';
+      }
+
+      // Register redirect (allow when not logged in)
+      if (isRegister && loggedIn) {
         return '/';
       }
 
@@ -290,6 +298,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) => const AdminUsersScreen(),
       ),
+      GoRoute(
+        path: '/admin-panel/soporte',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const AdminSupportScreen(),
+      ),
 
       // ── Other top-level routes ──
       GoRoute(
@@ -311,9 +324,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/login',
+        name: 'login',
         parentNavigatorKey: _rootNavigatorKey,
         pageBuilder: (context, state) =>
             _fade(state, const LoginScreen()),
+      ),
+      GoRoute(
+        path: '/register',
+        name: 'register',
+        parentNavigatorKey: _rootNavigatorKey,
+        pageBuilder: (context, state) =>
+            _fade(state, const RegisterScreen()),
       ),
       GoRoute(
         path: '/admin/login',
@@ -321,5 +342,61 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const AdminLoginScreen(),
       ),
     ],
+    errorBuilder: (context, state) => Scaffold(
+      appBar: AppBar(title: const Text('Página no encontrada')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.error_outline,
+                size: 80,
+                color: Color(0xFF9E9E9E),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Página no encontrada',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                state.uri.toString(),
+                style: const TextStyle(
+                  color: Color(0xFF9E9E9E),
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: 200,
+                child: FilledButton(
+                  onPressed: () => context.go('/'),
+                  child: const Text('IR A INICIO'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: 200,
+                child: OutlinedButton(
+                  onPressed: () => context.go('/login'),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFF111111)),
+                  ),
+                  child: const Text(
+                    'INICIAR SESIÓN',
+                    style: TextStyle(color: Color(0xFF111111)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
   );
 });

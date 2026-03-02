@@ -352,6 +352,24 @@ class SEn extends S {
   String get ordersShipmentCancelled => 'Cancelled';
 
   @override
+  String get shipmentStatusPending => 'Pending';
+
+  @override
+  String get shipmentStatusPreparing => 'Preparing';
+
+  @override
+  String get shipmentStatusShipped => 'Shipped';
+
+  @override
+  String get shipmentStatusDelivered => 'Delivered';
+
+  @override
+  String get shipmentStatusCancelled => 'Cancelled';
+
+  @override
+  String get ordersReturnRequest => 'Request return';
+
+  @override
   String get ordersCancelRequest => 'Request cancellation';
 
   @override
@@ -462,6 +480,9 @@ class SEn extends S {
 
   @override
   String get accountLoginBtn => 'LOG IN';
+
+  @override
+  String get accountRegisterBtn => 'REGISTER';
 
   @override
   String get accountOrders => 'My orders';

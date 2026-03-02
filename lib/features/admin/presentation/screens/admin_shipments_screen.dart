@@ -19,6 +19,15 @@ class _AdminShipmentsScreenState extends State<AdminShipmentsScreen> {
 
   static const _statuses = ['pending', 'preparing', 'shipped', 'delivered', 'cancelled'];
 
+  String _statusLabel(S t, String status) => switch (status) {
+    'pending' => t.shipmentStatusPending,
+    'preparing' => t.shipmentStatusPreparing,
+    'shipped' => t.shipmentStatusShipped,
+    'delivered' => t.shipmentStatusDelivered,
+    'cancelled' => t.shipmentStatusCancelled,
+    _ => status,
+  };
+
   @override
   void initState() {
     super.initState();
@@ -61,7 +70,7 @@ class _AdminShipmentsScreenState extends State<AdminShipmentsScreen> {
               children: [
                 DropdownButtonFormField<String>(
                   initialValue: selectedStatus,
-                  items: _statuses.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                  items: _statuses.map((s) => DropdownMenuItem(value: s, child: Text(_statusLabel(t, s)))).toList(),
                   onChanged: (v) => setDlgState(() => selectedStatus = v ?? selectedStatus),
                   decoration: InputDecoration(labelText: t.adminShipmentStatus),
                 ),
@@ -122,7 +131,7 @@ class _AdminShipmentsScreenState extends State<AdminShipmentsScreen> {
                 TextField(controller: orderIdCtrl, decoration: const InputDecoration(labelText: 'Order ID')),
                 DropdownButtonFormField<String>(
                   initialValue: selectedStatus,
-                  items: _statuses.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                  items: _statuses.map((s) => DropdownMenuItem(value: s, child: Text(_statusLabel(t, s)))).toList(),
                   onChanged: (v) => setDlgState(() => selectedStatus = v ?? selectedStatus),
                   decoration: InputDecoration(labelText: t.adminShipmentStatus),
                 ),
@@ -217,7 +226,7 @@ class _AdminShipmentsScreenState extends State<AdminShipmentsScreen> {
                             leading: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                               color: _statusColor(status),
-                              child: Text(status, style: const TextStyle(fontSize: 11)),
+                              child: Text(_statusLabel(t, status), style: const TextStyle(fontSize: 11)),
                             ),
                             title: Text('#${orderId.substring(0, 8)}',
                                 style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500)),

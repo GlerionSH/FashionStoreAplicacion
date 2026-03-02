@@ -109,8 +109,8 @@ class _OrderDetailBody extends StatelessWidget {
             _ShipmentInfoBlock(orderId: order.id),
           ],
 
-          // Cancel request button
-          if (['paid', 'preparing'].contains(order.status) &&
+          // Cancel / return request button (unified)
+          if (['paid', 'preparing', 'shipped', 'delivered'].contains(order.status) &&
               order.cancelRequestedAt == null) ...[
             const SizedBox(height: 8),
             _CancelRequestButton(order: order),
@@ -238,6 +238,15 @@ class _InvoiceButtonState extends State<_InvoiceButton> {
       };
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(msg)));
+    } on PdfOpenException catch (e) {
+      if (kDebugMode) debugPrint('[InvoiceButton] open error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('PDF descargado pero no se pudo abrir. ${e.message}'),
+          duration: const Duration(seconds: 5),
+        ),
+      );
     } catch (e) {
       if (kDebugMode) debugPrint('[InvoiceButton] error: $e');
       if (!mounted) return;
@@ -402,7 +411,11 @@ class _CancelRequestButtonState extends State<_CancelRequestButton> {
         icon: _loading
             ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
             : const Icon(Icons.cancel_outlined, size: 18),
-        label: Text(t.ordersCancelRequest),
+        label: Text(
+          widget.order.status == 'delivered'
+              ? t.ordersReturnRequest
+              : t.ordersCancelRequest,
+        ),
         style: OutlinedButton.styleFrom(foregroundColor: Colors.red.shade700),
       ),
     );

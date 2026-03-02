@@ -58,7 +58,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(title: Text(t.loginTitle)),
+        appBar: AppBar(
+          title: Text(t.loginTitle),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              if (Navigator.of(context).canPop()) {
+                context.pop();
+              } else {
+                context.go('/');
+              }
+            },
+          ),
+        ),
         body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -126,6 +138,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : Text(t.loginButton),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: OutlinedButton(
+                      onPressed: isLoading ? null : () => context.go('/register'),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFF111111)),
+                      ),
+                      child: const Text(
+                        'CREAR CUENTA',
+                        style: TextStyle(color: Color(0xFF111111)),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 32),

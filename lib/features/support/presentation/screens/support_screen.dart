@@ -1,10 +1,6 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../l10n/app_localizations.dart';
@@ -129,38 +125,26 @@ class _NewTicketFormState extends ConsumerState<_NewTicketForm> {
     final message = _messageCtrl.text.trim();
 
     try {
-      final endpointUrl = dotenv.env['SUPPORT_ENDPOINT_URL'] ?? '';
+      final client = Supabase.instance.client;
+      final userId = client.auth.currentUser?.id;
 
-      if (endpointUrl.isNotEmpty) {
-        // ── Option 1: HTTP POST to configured endpoint ──
-        final uri = Uri.parse(endpointUrl);
-        final response = await http.post(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'name': name,
-            'email': email,
-            'subject': subject,
-            'message': message,
-          }),
-        );
-        if (kDebugMode) debugPrint('[Support] HTTP POST status: ${response.statusCode}');
-        if (response.statusCode < 200 || response.statusCode >= 300) {
-          throw Exception('HTTP ${response.statusCode}');
-        }
-      } else {
-        // ── Option 2: Supabase insert fallback ──
-        final client = Supabase.instance.client;
-        final userId = client.auth.currentUser?.id;
-        await client.from('fs_support_tickets').insert({
-          if (userId != null) 'user_id': userId,
+      // Call Edge Function to create ticket + send emails
+      final response = await client.functions.invoke(
+        'support',
+        body: {
+          'action': 'create_ticket',
           'name': name,
           'email': email,
           'subject': subject,
           'message': message,
-          'status': 'open',
-        });
-        if (kDebugMode) debugPrint('[Support] Supabase insert OK');
+          'user_id': userId,
+        },
+      );
+
+      if (kDebugMode) debugPrint('[Support] Response: ${response.data}');
+
+      if (response.data == null || response.data['ok'] != true) {
+        throw Exception('Failed to create ticket');
       }
 
       if (!mounted) return;
@@ -342,18 +326,87 @@ class _TicketTile extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Ticket detail page (hilo)
+// Ticket detail page (chat conversation)
 // ---------------------------------------------------------------------------
-class _TicketDetailPage extends ConsumerWidget {
+class _TicketDetailPage extends ConsumerStatefulWidget {
   final String ticketId;
 
   const _TicketDetailPage({required this.ticketId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_TicketDetailPage> createState() => _TicketDetailPageState();
+}
+
+class _TicketDetailPageState extends ConsumerState<_TicketDetailPage> {
+  final _messageCtrl = TextEditingController();
+  final _scrollCtrl = ScrollController();
+  bool _sending = false;
+
+  @override
+  void dispose() {
+    _messageCtrl.dispose();
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  void _scrollToBottom() {
+    if (_scrollCtrl.hasClients) {
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (_scrollCtrl.hasClients) {
+          _scrollCtrl.animateTo(
+            _scrollCtrl.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
+  }
+
+  Future<void> _sendMessage() async {
+    final body = _messageCtrl.text.trim();
+    if (body.isEmpty) return;
+
+    setState(() => _sending = true);
+
+    try {
+      final client = Supabase.instance.client;
+      final userId = client.auth.currentUser?.id;
+
+      final response = await client.functions.invoke(
+        'support',
+        body: {
+          'action': 'send_message',
+          'ticket_id': widget.ticketId,
+          'author': 'user',
+          'body': body,
+          'user_id': userId,
+        },
+      );
+
+      if (response.data == null || response.data['ok'] != true) {
+        throw Exception('Failed to send message');
+      }
+
+      _messageCtrl.clear();
+      ref.invalidate(ticketDetailProvider(widget.ticketId));
+      _scrollToBottom();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final t = S.of(context)!;
     final theme = Theme.of(context);
-    final detailAv = ref.watch(ticketDetailProvider(ticketId));
+    final detailAv = ref.watch(ticketDetailProvider(widget.ticketId));
 
     return Scaffold(
       appBar: AppBar(title: Text(t.supportTicketDetail)),
@@ -369,51 +422,129 @@ class _TicketDetailPage extends ConsumerWidget {
             return const Center(child: Text('Not found'));
           }
 
-          return RefreshIndicator(
-            onRefresh: () async =>
-                ref.invalidate(ticketDetailProvider(ticketId)),
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
-              children: [
-                // Original ticket
-                Text(
-                  ticket['subject'] as String? ?? '',
-                  style: theme.textTheme.titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w500),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFAFAFA),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+          final status = ticket['status'] as String? ?? 'open';
+          final isClosed = status == 'closed';
+
+          WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+
+          return Column(
+            children: [
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: () async =>
+                      ref.invalidate(ticketDetailProvider(widget.ticketId)),
+                  child: ListView(
+                    controller: _scrollCtrl,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
                     children: [
-                      Text(t.supportYou,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 10,
-                            color: const Color(0xFF9E9E9E),
-                          )),
-                      const SizedBox(height: 4),
-                      Text(ticket['message'] as String? ?? '',
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(height: 1.5)),
+                      // Original ticket
+                      Text(
+                        ticket['subject'] as String? ?? '',
+                        style: theme.textTheme.titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFAFAFA),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(t.supportYou,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 10,
+                                  color: const Color(0xFF9E9E9E),
+                                )),
+                            const SizedBox(height: 4),
+                            Text(ticket['message'] as String? ?? '',
+                                style: theme.textTheme.bodySmall
+                                    ?.copyWith(height: 1.5)),
+                          ],
+                        ),
+                      ),
+
+                      // Replies
+                      for (final reply in replies) ...[
+                        const SizedBox(height: 12),
+                        _ReplyBubble(reply: reply),
+                      ],
+
+                      const SizedBox(height: 80),
                     ],
                   ),
                 ),
-
-                // Replies
-                for (final reply in replies) ...[
-                  const SizedBox(height: 12),
-                  _ReplyBubble(reply: reply),
-                ],
-              ],
-            ),
+              ),
+              if (!isClosed)
+                Container(
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    8,
+                    16,
+                    MediaQuery.of(context).padding.bottom + 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border(
+                      top: BorderSide(color: Colors.grey.shade200),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _messageCtrl,
+                          decoration: InputDecoration(
+                            hintText: t.supportMessage,
+                            hintStyle: theme.textTheme.bodySmall,
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10),
+                            border: const OutlineInputBorder(),
+                          ),
+                          style: theme.textTheme.bodySmall,
+                          maxLines: 3,
+                          minLines: 1,
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) => _sendMessage(),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: _sending ? null : _sendMessage,
+                        icon: _sending
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2),
+                              )
+                            : const Icon(Icons.send, size: 20),
+                        style: IconButton.styleFrom(
+                          backgroundColor: const Color(0xFF111111),
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  color: Colors.grey.shade100,
+                  child: Text(
+                    'Este ticket está cerrado',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: Colors.grey.shade600),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+            ],
           );
         },
       ),
@@ -432,7 +563,7 @@ class _ReplyBubble extends StatelessWidget {
     final theme = Theme.of(context);
     final author = reply['author'] as String? ?? 'admin';
     final isAdmin = author == 'admin';
-    final body = reply['body'] as String? ?? '';
+    final body = reply['reply_text'] as String? ?? '';
     final createdAt = reply['created_at'] as String? ?? '';
 
     return Container(

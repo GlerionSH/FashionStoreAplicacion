@@ -95,8 +95,8 @@ serve(async (req: Request) => {
       }
     }
 
-    // 5. Per-user limit
-    if (coupon.max_redemptions_per_user !== null && (userId || userEmail)) {
+    // 5. Per-user limit (hard check — 1 per user regardless of max_redemptions_per_user)
+    if (userId || userEmail) {
       let q = supabase
         .from("fs_coupon_redemptions")
         .select("id", { count: "exact", head: true })
@@ -106,8 +106,12 @@ serve(async (req: Request) => {
       else if (userEmail) q = q.eq("email", userEmail);
 
       const { count: perUserCount } = await q;
-      if ((perUserCount ?? 0) >= coupon.max_redemptions_per_user) {
-        return json(200, { valid: false, message: "Ya usaste este cupón el máximo de veces permitido" });
+
+      // Enforce max_redemptions_per_user if set, otherwise default to 1
+      const maxPerUser = coupon.max_redemptions_per_user ?? 1;
+      if ((perUserCount ?? 0) >= maxPerUser) {
+        console.log(`[validate-coupon] user=${userId ?? userEmail} already redeemed ${upperCode} (${perUserCount}/${maxPerUser})`);
+        return json(409, { valid: false, message: "Ya usaste este cupón" });
       }
     }
 

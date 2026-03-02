@@ -75,6 +75,9 @@ class _ReturnTile extends ConsumerWidget {
     final dateStr =
         requestedAt.length >= 10 ? requestedAt.substring(0, 10) : '';
     final isRequested = status == 'requested';
+    final requestType = returnData['request_type'] as String? ?? 'cancellation';
+    final order = returnData['order'] as Map<String, dynamic>?;
+    final email = order?['email'] as String? ?? '';
 
     return InkWell(
       onTap: () => context.go('/admin-panel/devoluciones/$id'),
@@ -89,10 +92,37 @@ class _ReturnTile extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '${S.of(context)!.adminReturnOrder}: #${orderId.length > 8 ? orderId.substring(0, 8) : orderId}',
-                      style: const TextStyle(fontSize: 12),
+                    Row(
+                      children: [
+                        Text(
+                          '${S.of(context)!.adminReturnOrder}: #${orderId.length > 8 ? orderId.substring(0, 8) : orderId}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: requestType == 'return'
+                                ? const Color(0xFFE3F2FD)
+                                : const Color(0xFFFFF8E1),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          child: Text(
+                            requestType == 'return' ? 'DEV' : 'CANCEL',
+                            style: TextStyle(
+                              fontSize: 8, fontWeight: FontWeight.w600, letterSpacing: 0.5,
+                              color: requestType == 'return'
+                                  ? const Color(0xFF1565C0)
+                                  : const Color(0xFFF57F17),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
+                    if (email.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(email, style: const TextStyle(fontSize: 11, color: Color(0xFF757575))),
+                    ],
                     const SizedBox(height: 2),
                     Text(dateStr,
                         style: const TextStyle(
@@ -105,7 +135,11 @@ class _ReturnTile extends ConsumerWidget {
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 color: isRequested
                     ? const Color(0xFFFFF3E0)
-                    : const Color(0xFFF5F5F5),
+                    : status == 'refunded'
+                        ? const Color(0xFFE8F5E9)
+                        : status == 'rejected'
+                            ? const Color(0xFFFFEBEE)
+                            : const Color(0xFFF5F5F5),
                 child: Text(
                   status.toUpperCase(),
                   style: TextStyle(
@@ -114,7 +148,11 @@ class _ReturnTile extends ConsumerWidget {
                     letterSpacing: 0.8,
                     color: isRequested
                         ? const Color(0xFFE65100)
-                        : const Color(0xFF616161),
+                        : status == 'refunded'
+                            ? const Color(0xFF2E7D32)
+                            : status == 'rejected'
+                                ? const Color(0xFFC62828)
+                                : const Color(0xFF616161),
                   ),
                 ),
               ),
@@ -124,7 +162,8 @@ class _ReturnTile extends ConsumerWidget {
             const SizedBox(height: 6),
             Text('${S.of(context)!.adminReturnReason}: $reason',
                 style: const TextStyle(
-                    fontSize: 11, color: Color(0xFF616161))),
+                    fontSize: 11, color: Color(0xFF616161)),
+                maxLines: 1, overflow: TextOverflow.ellipsis),
           ],
           const SizedBox(height: 4),
           Row(

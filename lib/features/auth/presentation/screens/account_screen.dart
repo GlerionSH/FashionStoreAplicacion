@@ -68,6 +68,20 @@ class AccountScreen extends ConsumerWidget {
                         child: Text(t.accountLoginBtn),
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: 200,
+                      child: OutlinedButton(
+                        onPressed: () => context.go('/register'),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFF111111)),
+                        ),
+                        child: Text(
+                          t.accountRegisterBtn,
+                          style: const TextStyle(color: Color(0xFF111111)),
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 32),
                     _NewsletterBlock(prefillEmail: null),
                   ],
@@ -175,14 +189,6 @@ class AccountScreen extends ConsumerWidget {
                   title: t.accountOrders,
                   subtitle: t.accountOrdersSubtitle,
                   onTap: () => context.go('/cuenta/pedidos'),
-                ),
-                const SizedBox(height: 8),
-                _AccountCard(
-                  icon: Icons.local_shipping_outlined,
-                  title: t.accountAddress,
-                  subtitle: t.accountAddressPlaceholder,
-                  enabled: false,
-                  onTap: () {},
                 ),
                 const SizedBox(height: 8),
                 _AccountCard(

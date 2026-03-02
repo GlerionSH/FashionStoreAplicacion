@@ -757,6 +757,42 @@ abstract class S {
   /// **'Cancelado'**
   String get ordersShipmentCancelled;
 
+  /// No description provided for @shipmentStatusPending.
+  ///
+  /// In es, this message translates to:
+  /// **'Pendiente'**
+  String get shipmentStatusPending;
+
+  /// No description provided for @shipmentStatusPreparing.
+  ///
+  /// In es, this message translates to:
+  /// **'Preparando'**
+  String get shipmentStatusPreparing;
+
+  /// No description provided for @shipmentStatusShipped.
+  ///
+  /// In es, this message translates to:
+  /// **'Enviado'**
+  String get shipmentStatusShipped;
+
+  /// No description provided for @shipmentStatusDelivered.
+  ///
+  /// In es, this message translates to:
+  /// **'Entregado'**
+  String get shipmentStatusDelivered;
+
+  /// No description provided for @shipmentStatusCancelled.
+  ///
+  /// In es, this message translates to:
+  /// **'Cancelado'**
+  String get shipmentStatusCancelled;
+
+  /// No description provided for @ordersReturnRequest.
+  ///
+  /// In es, this message translates to:
+  /// **'Solicitar devolucion'**
+  String get ordersReturnRequest;
+
   /// No description provided for @ordersCancelRequest.
   ///
   /// In es, this message translates to:
@@ -960,6 +996,12 @@ abstract class S {
   /// In es, this message translates to:
   /// **'INICIAR SESION'**
   String get accountLoginBtn;
+
+  /// No description provided for @accountRegisterBtn.
+  ///
+  /// In es, this message translates to:
+  /// **'REGISTRARSE'**
+  String get accountRegisterBtn;
 
   /// No description provided for @accountOrders.
   ///

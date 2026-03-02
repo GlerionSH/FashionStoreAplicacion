@@ -352,6 +352,24 @@ class SEs extends S {
   String get ordersShipmentCancelled => 'Cancelado';
 
   @override
+  String get shipmentStatusPending => 'Pendiente';
+
+  @override
+  String get shipmentStatusPreparing => 'Preparando';
+
+  @override
+  String get shipmentStatusShipped => 'Enviado';
+
+  @override
+  String get shipmentStatusDelivered => 'Entregado';
+
+  @override
+  String get shipmentStatusCancelled => 'Cancelado';
+
+  @override
+  String get ordersReturnRequest => 'Solicitar devolucion';
+
+  @override
   String get ordersCancelRequest => 'Solicitar cancelación';
 
   @override
@@ -461,6 +479,9 @@ class SEs extends S {
 
   @override
   String get accountLoginBtn => 'INICIAR SESION';
+
+  @override
+  String get accountRegisterBtn => 'REGISTRARSE';
 
   @override
   String get accountOrders => 'Mis pedidos';

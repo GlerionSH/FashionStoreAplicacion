@@ -159,6 +159,11 @@ class _DashboardBody extends StatelessWidget {
           label: S.of(context)!.adminNavUsers,
           onTap: () => context.go('/admin-panel/usuarios'),
         ),
+        _NavTile(
+          icon: Icons.headset_mic_outlined,
+          label: 'Soporte',
+          onTap: () => context.go('/admin-panel/soporte'),
+        ),
         const SizedBox(height: 28),
 
         // ── Recent orders ──

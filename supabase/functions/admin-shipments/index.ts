@@ -53,7 +53,7 @@ async function sendShipmentEmail(
 ) {
   const { data: order } = await supabase
     .from("fs_orders")
-    .select("email, id")
+    .select("email, id, subtotal_cents, discount_cents, coupon_discount_cents, total_cents")
     .eq("id", orderId)
     .maybeSingle();
 
@@ -62,11 +62,59 @@ async function sendShipmentEmail(
     return;
   }
 
+  console.log(`[admin-shipments] Preparing email for order ${orderId}, status: ${status}`);
+
+  // Fetch order items for email
+  const { data: items } = await supabase
+    .from("fs_order_items")
+    .select("name, qty, size, price_cents, line_total_cents")
+    .eq("order_id", orderId);
+
+  // Calculate totals with discount coherence
+  const subtotalCents = order.subtotal_cents || 0;
+  const couponDiscountCents = order.coupon_discount_cents || 0;
+  const totalCents = order.total_cents || 0;
+  
+  const itemsHtml = (items && items.length > 0)
+    ? `<table style="width:100%;border-collapse:collapse;margin:16px 0">
+        <thead><tr style="background:#f5f5f5">
+          <th style="padding:6px 8px;text-align:left;font-size:12px;font-weight:500">ARTICULO</th>
+          <th style="padding:6px 8px;text-align:center;font-size:12px;font-weight:500">CANT</th>
+          <th style="padding:6px 8px;text-align:right;font-size:12px;font-weight:500">PRECIO</th>
+        </tr></thead>
+        <tbody>${items.map((i: any) =>
+          `<tr>
+            <td style="padding:6px 8px;border-bottom:1px solid #eee">${i.name || "Articulo"}${i.size ? ` (${i.size})` : ""}</td>
+            <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">${i.qty}</td>
+            <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${((i.line_total_cents || 0) / 100).toFixed(2)} EUR</td>
+          </tr>`).join("")}
+        </tbody>
+        <tfoot>
+          <tr><td colspan="2" style="padding:8px;text-align:right;font-size:13px">Subtotal:</td>
+              <td style="padding:8px;text-align:right;font-size:13px">${(subtotalCents / 100).toFixed(2)} EUR</td></tr>
+          ${couponDiscountCents > 0 ? `<tr><td colspan="2" style="padding:4px 8px;text-align:right;font-size:13px;color:#d32f2f">Descuento:</td>
+              <td style="padding:4px 8px;text-align:right;font-size:13px;color:#d32f2f">-${(couponDiscountCents / 100).toFixed(2)} EUR</td></tr>` : ""}
+          <tr><td colspan="2" style="padding:8px;text-align:right;font-size:14px;font-weight:600">Total:</td>
+              <td style="padding:8px;text-align:right;font-size:14px;font-weight:600">${(totalCents / 100).toFixed(2)} EUR</td></tr>
+        </tfoot>
+      </table>`
+    : "";
+
   const shortId = orderId.substring(0, 8);
   let subject = "";
   let bodyHtml = "";
 
-  if (status === "shipped") {
+  if (status === "preparing") {
+    subject = `Tu pedido #${shortId} esta en preparacion`;
+    bodyHtml = `
+      <div style="font-family:Helvetica,Arial,sans-serif;max-width:600px;margin:0 auto;color:#111">
+        <h2 style="font-weight:300;letter-spacing:2px;text-align:center">FASHION STORE</h2>
+        <p>Hola,</p>
+        <p>Tu pedido <strong>#${shortId}</strong> esta siendo preparado para el envio.</p>
+        ${itemsHtml}
+        <p style="margin-top:24px;font-size:12px;color:#999">Te notificaremos cuando salga en camino.</p>
+      </div>`;
+  } else if (status === "shipped") {
     subject = `Tu pedido #${shortId} ha sido enviado`;
     bodyHtml = `
       <div style="font-family:Helvetica,Arial,sans-serif;max-width:600px;margin:0 auto;color:#111">
@@ -74,7 +122,8 @@ async function sendShipmentEmail(
         <p>Hola,</p>
         <p>Tu pedido <strong>#${shortId}</strong> acaba de salir en camino.</p>
         ${carrier ? `<p>Transportista: <strong>${carrier}</strong></p>` : ""}
-        ${trackingNumber ? `<p>Número de seguimiento: <strong>${trackingNumber}</strong></p>` : ""}
+        ${trackingNumber ? `<p>Numero de seguimiento: <strong>${trackingNumber}</strong></p>` : ""}
+        ${itemsHtml}
         <p style="margin-top:24px;font-size:12px;color:#999">Si tienes dudas, contacta con nuestro soporte.</p>
       </div>`;
   } else if (status === "delivered") {
@@ -83,14 +132,27 @@ async function sendShipmentEmail(
       <div style="font-family:Helvetica,Arial,sans-serif;max-width:600px;margin:0 auto;color:#111">
         <h2 style="font-weight:300;letter-spacing:2px;text-align:center">FASHION STORE</h2>
         <p>Hola,</p>
-        <p>Tu pedido <strong>#${shortId}</strong> ha sido entregado. ¡Esperamos que lo disfrutes!</p>
+        <p>Tu pedido <strong>#${shortId}</strong> ha sido entregado.</p>
+        ${itemsHtml}
         <p style="margin-top:24px;font-size:12px;color:#999">Gracias por confiar en Fashion Store.</p>
       </div>`;
+  } else if (status === "cancelled") {
+    subject = `Tu pedido #${shortId} ha sido cancelado`;
+    bodyHtml = `
+      <div style="font-family:Helvetica,Arial,sans-serif;max-width:600px;margin:0 auto;color:#111">
+        <h2 style="font-weight:300;letter-spacing:2px;text-align:center">FASHION STORE</h2>
+        <p>Hola,</p>
+        <p>Tu pedido <strong>#${shortId}</strong> ha sido cancelado.</p>
+        ${itemsHtml}
+        <p style="margin-top:24px;font-size:12px;color:#999">Si no solicitaste esta cancelacion, contacta con soporte.</p>
+      </div>`;
   } else {
-    return; // No email for other statuses
+    console.log(`[admin-shipments] No email template for status: ${status}`);
+    return;
   }
 
   try {
+    console.log(`[admin-shipments] Sending shipment email to ${order.email}...`);
     const res = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       headers: { "api-key": brevoApiKey, "Content-Type": "application/json" },
@@ -102,23 +164,36 @@ async function sendShipmentEmail(
       }),
     });
 
-    const eventType = status === "shipped" ? "order_shipped" : "order_delivered";
-    await supabase.from("fs_email_events").insert({
+    const eventType = `order_${status}`;
+    const emailError = res.ok ? null : await res.text();
+    
+    console.log(`[admin-shipments] Email ${eventType} sent to ${order.email} → ${res.status}${emailError ? ` (error: ${emailError.substring(0, 100)})` : ""}`);
+
+    // Log email event (best-effort, don't throw)
+    const { error: logError } = await supabase.from("fs_email_events").insert({
       order_id: orderId,
       event_type: eventType,
       recipient_email: order.email,
-      error: res.ok ? null : await res.text(),
+      error: emailError,
     });
 
-    console.log(`[admin-shipments] Email ${eventType} sent to ${order.email} → ${res.status}`);
+    if (logError) {
+      console.error("[admin-shipments] Logging event failed (non-fatal):", logError.message);
+    }
   } catch (e: any) {
-    console.error("[admin-shipments] Email error:", e.message);
-    await supabase.from("fs_email_events").insert({
+    console.error("[admin-shipments] Email send failed (non-fatal):", e.message);
+    
+    // Try to log the failure (best-effort)
+    const { error: logError } = await supabase.from("fs_email_events").insert({
       order_id: orderId,
-      event_type: status === "shipped" ? "order_shipped" : "order_delivered",
+      event_type: `order_${status}`,
       recipient_email: order.email,
       error: e.message,
     });
+
+    if (logError) {
+      console.error("[admin-shipments] Logging email failure failed (non-fatal):", logError.message);
+    }
   }
 }
 
@@ -219,6 +294,8 @@ serve(async (req: Request) => {
       const { id, order_id, carrier, tracking_number, status, notes, shipped_at, delivered_at } = await req.json();
       if (!id) return json(400, { error: "id required" });
 
+      console.log(`[admin-shipments] Updating shipment ${id}${status ? ` to status: ${status}` : ""}...`);
+
       const now = new Date().toISOString();
       const update: Record<string, unknown> = { updated_at: now, last_event_at: now };
       if (carrier !== undefined) update.carrier = carrier;
@@ -239,26 +316,49 @@ serve(async (req: Request) => {
         .select("*, order_id")
         .single();
 
-      if (error) return json(400, { error: error.message });
+      if (error) {
+        console.error(`[admin-shipments] Updating shipment ${id} FAILED:`, error.message);
+        return json(400, { error: error.message });
+      }
+
+      console.log(`[admin-shipments] Updating shipment ${id} → OK`);
 
       const resolvedOrderId = order_id ?? data.order_id;
+      let emailWarning = false;
 
-      if (status && (status === "shipped" || status === "delivered") && brevoApiKey && emailFrom) {
-        await sendShipmentEmail(
-          supabase,
-          resolvedOrderId,
-          status,
-          carrier ?? data.carrier,
-          tracking_number ?? data.tracking_number,
-          brevoApiKey, emailFrom, emailFromName,
-        );
+      // Send email on any status change to preparing/shipped/delivered/cancelled
+      if (status && ["preparing", "shipped", "delivered", "cancelled"].includes(status) && brevoApiKey && emailFrom) {
+        console.log(`[admin-shipments] Status changed to ${status}, sending email...`);
+        try {
+          await sendShipmentEmail(
+            supabase,
+            resolvedOrderId,
+            status,
+            carrier ?? data.carrier,
+            tracking_number ?? data.tracking_number,
+            brevoApiKey, emailFrom, emailFromName,
+          );
+        } catch (emailErr: any) {
+          console.error(`[admin-shipments] Email send failed (non-fatal):`, emailErr.message);
+          emailWarning = true;
+        }
       }
 
-      if (status === "shipped" || status === "delivered" || status === "preparing") {
-        await supabase.from("fs_orders").update({ status }).eq("id", resolvedOrderId);
+      // Sync order status
+      if (status && ["preparing", "shipped", "delivered", "cancelled"].includes(status)) {
+        console.log(`[admin-shipments] Updating order ${resolvedOrderId} status to ${status}...`);
+        const { error: orderErr } = await supabase.from("fs_orders").update({ status }).eq("id", resolvedOrderId);
+        if (orderErr) {
+          console.error(`[admin-shipments] Updating order status FAILED (non-fatal):`, orderErr.message);
+        } else {
+          console.log(`[admin-shipments] Updating order ${resolvedOrderId} status → OK`);
+        }
       }
 
-      return json(200, { shipment: data });
+      return json(200, { 
+        shipment: data,
+        ...(emailWarning ? { warning: "email_failed" } : {})
+      });
     }
 
     return json(405, { error: "Method not allowed" });

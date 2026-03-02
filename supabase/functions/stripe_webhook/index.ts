@@ -11,6 +11,9 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 import Stripe from "https://esm.sh/stripe@14.14.0?target=deno";
+import { getBranding } from "../_shared/branding.ts";
+import { renderEmailBase, renderItemsTable } from "../_shared/email_templates.ts";
+import { sendEmailBrevo } from "../_shared/email.ts";
 
 function json(status: number, body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
@@ -170,7 +173,7 @@ serve(async (req: Request) => {
 
     // ── 3) Resolve order (3-tier fallback) ──
     const selectCols =
-      "id, status, email, stripe_session_id, stripe_payment_intent_id, invoice_token, email_sent_at";
+      "id, status, email, user_id, stripe_session_id, stripe_payment_intent_id, invoice_token, email_sent_at, coupon_code, coupon_discount_cents";
 
     let order: any = null;
 
@@ -314,6 +317,60 @@ serve(async (req: Request) => {
       console.log(`[webhook] Order ${orderId} already paid — skip finalize.`);
     }
 
+    // ── 5b) Create pending shipment (idempotent) ──
+    {
+      const { error: shipErr } = await supabase
+        .from("fs_shipments")
+        .upsert(
+          { order_id: orderId, status: "pending", updated_at: nowIso },
+          { onConflict: "order_id", ignoreDuplicates: true },
+        );
+      if (shipErr) {
+        console.error(`[webhook] shipment upsert error: ${shipErr.message}`);
+      } else {
+        console.log(`[webhook] Pending shipment ensured for order ${orderId}`);
+      }
+    }
+
+    // ── 5c) Track coupon redemption (idempotent) ──
+    if (order.coupon_code) {
+      console.log(`[coupon] Processing redemption for code=${order.coupon_code} order=${orderId} user=${order.user_id}`);
+
+      const { data: coupon } = await supabase
+        .from("fs_coupons")
+        .select("id, used_count, max_redemptions")
+        .eq("code", order.coupon_code)
+        .maybeSingle();
+
+      if (!coupon) {
+        console.warn(`[coupon] Code ${order.coupon_code} not found in fs_coupons — skip`);
+      } else if (coupon.max_redemptions !== null && coupon.used_count >= coupon.max_redemptions) {
+        console.warn(`[coupon] ${order.coupon_code} exhausted (${coupon.used_count}/${coupon.max_redemptions}) — skip`);
+      } else {
+        const { error: redemptionErr } = await supabase
+          .from("fs_coupon_redemptions")
+          .insert({
+            coupon_id: coupon.id,
+            coupon_code: order.coupon_code,
+            order_id: orderId,
+            user_id: order.user_id,
+            email: order.email,
+            discount_cents: order.coupon_discount_cents || 0,
+          });
+
+        if (redemptionErr) {
+          if (redemptionErr.code === "23505") {
+            // Duplicate: either same order_id (webhook retry) or same coupon+user
+            console.log(`[coupon] already redeemed — skip (${redemptionErr.message})`);
+          } else {
+            console.error(`[coupon] redemption insert error: ${redemptionErr.message}`);
+          }
+        } else {
+          console.log(`[coupon] redemption inserted order_id=${orderId} coupon=${order.coupon_code} user=${order.user_id}`);
+        }
+      }
+    }
+
     // ── 6) Email (non-fatal) ──
     const { data: emailOrder, error: emailOrderErr } = await supabase
       .from("fs_orders")
@@ -345,91 +402,67 @@ serve(async (req: Request) => {
           .select("name, qty, size, price_cents, line_total_cents")
           .eq("order_id", orderId);
 
-        const rows = (emailItems || [])
-          .map(
-            (i: any) =>
-              `<tr>` +
-              `<td style="padding:8px;border-bottom:1px solid #eee">${
-                i.name || "Artículo"
-              }${i.size ? ` (${i.size})` : ""}</td>` +
-              `<td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${i.qty}</td>` +
-              `<td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${(
-                (i.price_cents || 0) / 100
-              ).toFixed(2)} €</td>` +
-              `<td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${(
-                (i.line_total_cents || 0) / 100
-              ).toFixed(2)} €</td>` +
-              `</tr>`,
-          )
-          .join("");
-
-        const totalEur = (((emailOrder?.total_cents || 0) as number) / 100)
-          .toFixed(2);
-        const shortId = orderId.substring(0, 8);
+        const branding = await getBranding(supabase);
+        const shortId = orderId.substring(0, 8).toUpperCase();
+        const totalEur = (((emailOrder?.total_cents || 0) as number) / 100).toFixed(2);
         const token = emailOrder?.invoice_token || null;
         const baseUrl = supabaseUrl.replace(/\/+$/, "");
 
         const invoiceUrl = token
-          ? `${baseUrl}/functions/v1/invoice_pdf?order_id=${
-            encodeURIComponent(orderId)
-          }&token=${encodeURIComponent(token)}`
+          ? `${baseUrl}/functions/v1/invoice_pdf?order_id=${encodeURIComponent(orderId)}&token=${encodeURIComponent(token)}`
           : "";
 
-        const html = `
-          <div style="font-family:Helvetica,Arial,sans-serif;max-width:600px;margin:0 auto;color:#111">
-            <h2 style="font-weight:300;letter-spacing:2px;text-align:center;margin-bottom:32px">FASHION STORE</h2>
-            <p>Hola,</p>
-            <p>Tu pedido <strong>#${shortId}</strong> ha sido confirmado.</p>
-            <table style="width:100%;border-collapse:collapse;margin:24px 0">
-              <thead>
-                <tr style="background:#f5f5f5">
-                  <th style="padding:8px;text-align:left;font-weight:500;font-size:12px">ARTÍCULO</th>
-                  <th style="padding:8px;text-align:center;font-weight:500;font-size:12px">CANT</th>
-                  <th style="padding:8px;text-align:right;font-weight:500;font-size:12px">PRECIO</th>
-                  <th style="padding:8px;text-align:right;font-weight:500;font-size:12px">TOTAL</th>
-                </tr>
-              </thead>
-              <tbody>${rows}</tbody>
-            </table>
-            <p style="text-align:right;font-size:16px;font-weight:500">Total: ${totalEur} €</p>
-            ${
-          invoiceUrl
-            ? `<p style="margin-top:18px"><a href="${invoiceUrl}">Descargar factura (PDF)</a></p>`
-            : ``
-        }
-            <p style="margin-top:32px;font-size:12px;color:#999">Gracias por tu compra.</p>
-          </div>`;
+        // Build email body
+        const itemsTable = renderItemsTable(emailItems || []);
+        const bodyHtml = `
+          <p>Hola,</p>
+          <p>Tu pedido <strong>#${shortId}</strong> ha sido confirmado y está siendo procesado.</p>
+          ${itemsTable}
+          <p style="text-align:right;font-size:18px;font-weight:600;margin:16px 0;color:#111;">Total: ${totalEur} €</p>
+          <p style="font-size:14px;color:#666;">Recibirás un email cuando tu pedido sea enviado.</p>
+        `;
 
-        const toList: Array<{ email: string }> = [{ email: recipientEmail }];
-        if (emailAdminTo) toList.push({ email: emailAdminTo });
-
-        console.log(`[webhook] Sending email to ${recipientEmail}...`);
-
-        const emailRes = await fetch("https://api.brevo.com/v3/smtp/email", {
-          method: "POST",
-          headers: { "api-key": brevoApiKey, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sender: { name: emailFromName, email: emailFrom },
-            to: toList,
-            subject: `Pedido confirmado #${shortId}`,
-            htmlContent: html,
-          }),
+        const { html, text } = renderEmailBase({
+          title: "PEDIDO CONFIRMADO",
+          bodyHtml,
+          buttonText: invoiceUrl ? "DESCARGAR FACTURA" : undefined,
+          buttonUrl: invoiceUrl || undefined,
+          footerText: "Gracias por tu compra",
+          brandLogoUrl: branding.brandLogoUrl,
+          storeName: branding.storeName,
+          supportEmail: branding.supportEmail,
         });
 
-        if (emailRes.ok) {
-          console.log(`[webhook] ✅ Email sent, status=${emailRes.status}`);
+        console.log(`[webhook] Sending payment confirmation to ${recipientEmail}...`);
+
+        const emailResult = await sendEmailBrevo({
+          to: recipientEmail,
+          subject: `Pedido confirmado #${shortId}`,
+          html,
+          text,
+        });
+
+        // Also notify admin if configured
+        if (emailAdminTo && emailResult.ok) {
+          await sendEmailBrevo({
+            to: emailAdminTo,
+            subject: `[Admin] Nuevo pedido #${shortId} - ${totalEur} €`,
+            html,
+            text,
+          });
+        }
+
+        if (emailResult.ok) {
+          console.log(`[webhook] ✅ Payment confirmation email sent`);
           await supabase
             .from("fs_orders")
             .update({ email_sent_at: nowIso, email_last_error: null })
             .eq("id", orderId);
         } else {
-          const errBody = await emailRes.text();
-          console.error(
-            `[webhook] ❌ Email FAILED status=${emailRes.status}, body=${errBody}`,
-          );
+          console.error(`[webhook] ❌ Email FAILED: ${emailResult.status} ${emailResult.bodyText}`);
           await supabase
             .from("fs_orders")
-            .update({ email_last_error: errBody })
+            .update({ email_last_error: `${emailResult.status}: ${emailResult.bodyText}` })
             .eq("id", orderId);
         }
       } catch (emailErr: any) {

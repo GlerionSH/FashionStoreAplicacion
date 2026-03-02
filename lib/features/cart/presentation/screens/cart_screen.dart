@@ -221,7 +221,14 @@ class _CartBottomBarState extends ConsumerState<_CartBottomBar> {
         body: {'code': code, 'order_cents': subtotalCents},
       );
       final data = resp.data as Map<String, dynamic>;
-      if (data['valid'] == true) {
+      if (resp.status == 409) {
+        setState(() {
+          _couponError = data['message'] as String? ?? 'Ya usaste este cupón';
+          _appliedCoupon = null;
+          _discountCents = 0;
+          _couponCtrl.clear();
+        });
+      } else if (data['valid'] == true) {
         setState(() {
           _appliedCoupon = data['code'] as String;
           _couponPercent = data['percent_off'] as int;

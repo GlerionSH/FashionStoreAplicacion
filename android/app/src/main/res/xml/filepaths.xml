@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <files-path name="app_files" path="." />
-    <cache-path name="app_cache" path="." />
-    <external-files-path name="app_external_files" path="." />
+    <!-- Cache directory: /data/data/<pkg>/cache/ (used by getTemporaryDirectory) -->
+    <cache-path name="cache" path="." />
+    
+    <!-- Files directory: /data/data/<pkg>/files/ -->
+    <files-path name="files" path="." />
+    
+    <!-- External storage -->
+    <external-files-path name="external_files" path="." />
 </paths>

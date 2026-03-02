@@ -90,13 +90,11 @@ class PdfService {
   }
 
   // ── Open a saved PDF file with the system viewer ────────────────────────────
-  static Future<void> openPdfFile(File file) async {
+  static Future<OpenResult> openPdfFile(File file) async {
     if (kDebugMode) debugPrint('[PdfService] Opening ${file.path}');
     final result = await OpenFilex.open(file.path, type: 'application/pdf');
     if (kDebugMode) debugPrint('[PdfService] OpenFilex result: ${result.type} ${result.message}');
-    if (result.type != ResultType.done) {
-      throw PdfOpenException(result.message);
-    }
+    return result;
   }
 
   // ── Complete invoice flow: Edge Function → download bytes → save → open ─────
@@ -164,12 +162,15 @@ class PdfService {
       throw const PdfDownloadException('unknown_response_format');
     }
 
-    await openPdfFile(file);
+    final openResult = await openPdfFile(file);
+    if (openResult.type != ResultType.done) {
+      throw PdfOpenException('${openResult.message} (path: ${file.path})');
+    }
   }
 
   // ── Internal helper ──────────────────────────────────────────────────────────
   static Future<File> _saveBytes(Uint8List bytes, String fileName) async {
-    final dir = await getApplicationDocumentsDirectory();
+    final dir = await getTemporaryDirectory();
     final safeName = fileName.replaceAll(RegExp(r'[^\w\-]'), '_');
     final file = File('${dir.path}/$safeName.pdf');
     await file.writeAsBytes(bytes, flush: true);
